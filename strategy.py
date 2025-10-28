@@ -10,38 +10,74 @@ class TradingStrategy:
     def __init__(self, df, indicators):
         self.df = df
         self.indicators = indicators
-        self.current_price = df['Close'].iloc[-1]
+        self.current_price = float(df['Close'].iloc[-1])
+    
+    def safe_get_value(self, indicator_name):
+        """Safely extract indicator value and convert to float"""
+        try:
+            value = self.indicators[indicator_name].iloc[-1]
+            if pd.isna(value):
+                return None
+            return float(value)
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
+    
+    def safe_compare(self, val1, val2, default=0):
+        """Safely compare two values, return default if either is None"""
+        if val1 is None or val2 is None:
+            return default
+        try:
+            val1 = float(val1)
+            val2 = float(val2)
+            return val1, val2
+        except (TypeError, ValueError):
+            return default
     
     def analyze_trend(self):
         """Analyze trend using moving averages"""
         score = 0
         signals = {}
         
+        # Get values safely
+        sma_20 = self.safe_get_value('SMA_20')
+        sma_50 = self.safe_get_value('SMA_50')
+        ema_12 = self.safe_get_value('EMA_12')
+        ema_26 = self.safe_get_value('EMA_26')
+        
         # SMA crossover
-        if self.indicators['SMA_20'].iloc[-1] > self.indicators['SMA_50'].iloc[-1]:
-            score += 1
-            signals['SMA_Crossover'] = 1
-        elif self.indicators['SMA_20'].iloc[-1] < self.indicators['SMA_50'].iloc[-1]:
-            score -= 1
-            signals['SMA_Crossover'] = -1
+        if sma_20 is not None and sma_50 is not None:
+            if sma_20 > sma_50:
+                score += 1
+                signals['SMA_Crossover'] = 1
+            elif sma_20 < sma_50:
+                score -= 1
+                signals['SMA_Crossover'] = -1
+            else:
+                signals['SMA_Crossover'] = 0
         else:
             signals['SMA_Crossover'] = 0
         
         # Price vs SMA
-        if self.current_price > self.indicators['SMA_20'].iloc[-1]:
-            score += 0.5
-            signals['Price_vs_SMA20'] = 1
+        if sma_20 is not None:
+            if self.current_price > sma_20:
+                score += 0.5
+                signals['Price_vs_SMA20'] = 1
+            else:
+                score -= 0.5
+                signals['Price_vs_SMA20'] = -1
         else:
-            score -= 0.5
-            signals['Price_vs_SMA20'] = -1
+            signals['Price_vs_SMA20'] = 0
         
         # EMA alignment
-        if self.indicators['EMA_12'].iloc[-1] > self.indicators['EMA_26'].iloc[-1]:
-            score += 1
-            signals['EMA_Alignment'] = 1
+        if ema_12 is not None and ema_26 is not None:
+            if ema_12 > ema_26:
+                score += 1
+                signals['EMA_Alignment'] = 1
+            else:
+                score -= 1
+                signals['EMA_Alignment'] = -1
         else:
-            score -= 1
-            signals['EMA_Alignment'] = -1
+            signals['EMA_Alignment'] = 0
         
         return score, signals
     
@@ -51,79 +87,97 @@ class TradingStrategy:
         signals = {}
         
         # RSI
-        rsi = self.indicators['RSI'].iloc[-1]
-        if rsi < 30:
-            score += 2  # Oversold - strong buy
-            signals['RSI'] = 2
-        elif rsi < 40:
-            score += 1  # Approaching oversold
-            signals['RSI'] = 1
-        elif rsi > 70:
-            score -= 2  # Overbought - strong sell
-            signals['RSI'] = -2
-        elif rsi > 60:
-            score -= 1  # Approaching overbought
-            signals['RSI'] = -1
+        rsi = self.safe_get_value('RSI')
+        if rsi is not None:
+            if rsi < 30:
+                score += 2  # Oversold - strong buy
+                signals['RSI'] = 2
+            elif rsi < 40:
+                score += 1  # Approaching oversold
+                signals['RSI'] = 1
+            elif rsi > 70:
+                score -= 2  # Overbought - strong sell
+                signals['RSI'] = -2
+            elif rsi > 60:
+                score -= 1  # Approaching overbought
+                signals['RSI'] = -1
+            else:
+                signals['RSI'] = 0
         else:
             signals['RSI'] = 0
         
         # MACD
-        macd = self.indicators['MACD'].iloc[-1]
-        signal = self.indicators['MACD_signal'].iloc[-1]
-        hist = self.indicators['MACD_hist'].iloc[-1]
+        macd = self.safe_get_value('MACD')
+        macd_signal = self.safe_get_value('MACD_signal')
+        hist = self.safe_get_value('MACD_hist')
         
-        if macd > signal and hist > 0:
-            score += 1.5
-            signals['MACD'] = 1
-        elif macd < signal and hist < 0:
-            score -= 1.5
-            signals['MACD'] = -1
+        if macd is not None and macd_signal is not None and hist is not None:
+            if macd > macd_signal and hist > 0:
+                score += 1.5
+                signals['MACD'] = 1
+            elif macd < macd_signal and hist < 0:
+                score -= 1.5
+                signals['MACD'] = -1
+            else:
+                signals['MACD'] = 0
         else:
             signals['MACD'] = 0
         
         # Stochastic
-        stoch_k = self.indicators['Stoch_K'].iloc[-1]
-        stoch_d = self.indicators['Stoch_D'].iloc[-1]
+        stoch_k = self.safe_get_value('Stoch_K')
+        stoch_d = self.safe_get_value('Stoch_D')
         
-        if stoch_k < 20 and stoch_k > stoch_d:
-            score += 1.5
-            signals['Stochastic'] = 1
-        elif stoch_k > 80 and stoch_k < stoch_d:
-            score -= 1.5
-            signals['Stochastic'] = -1
+        if stoch_k is not None and stoch_d is not None:
+            if stoch_k < 20 and stoch_k > stoch_d:
+                score += 1.5
+                signals['Stochastic'] = 1
+            elif stoch_k > 80 and stoch_k < stoch_d:
+                score -= 1.5
+                signals['Stochastic'] = -1
+            else:
+                signals['Stochastic'] = 0
         else:
             signals['Stochastic'] = 0
         
         # CCI
-        cci = self.indicators['CCI'].iloc[-1]
-        if cci < -100:
-            score += 1
-            signals['CCI'] = 1
-        elif cci > 100:
-            score -= 1
-            signals['CCI'] = -1
+        cci = self.safe_get_value('CCI')
+        if cci is not None:
+            if cci < -100:
+                score += 1
+                signals['CCI'] = 1
+            elif cci > 100:
+                score -= 1
+                signals['CCI'] = -1
+            else:
+                signals['CCI'] = 0
         else:
             signals['CCI'] = 0
         
         # Williams %R
-        williams = self.indicators['Williams_R'].iloc[-1]
-        if williams < -80:
-            score += 1
-            signals['Williams_R'] = 1
-        elif williams > -20:
-            score -= 1
-            signals['Williams_R'] = -1
+        williams = self.safe_get_value('Williams_R')
+        if williams is not None:
+            if williams < -80:
+                score += 1
+                signals['Williams_R'] = 1
+            elif williams > -20:
+                score -= 1
+                signals['Williams_R'] = -1
+            else:
+                signals['Williams_R'] = 0
         else:
             signals['Williams_R'] = 0
         
         # MFI (Money Flow Index)
-        mfi = self.indicators['MFI'].iloc[-1]
-        if mfi < 20:
-            score += 1
-            signals['MFI'] = 1
-        elif mfi > 80:
-            score -= 1
-            signals['MFI'] = -1
+        mfi = self.safe_get_value('MFI')
+        if mfi is not None:
+            if mfi < 20:
+                score += 1
+                signals['MFI'] = 1
+            elif mfi > 80:
+                score -= 1
+                signals['MFI'] = -1
+            else:
+                signals['MFI'] = 0
         else:
             signals['MFI'] = 0
         
@@ -135,35 +189,41 @@ class TradingStrategy:
         signals = {}
         
         # Bollinger Bands
-        bb_upper = self.indicators['BB_upper'].iloc[-1]
-        bb_lower = self.indicators['BB_lower'].iloc[-1]
-        bb_middle = self.indicators['BB_middle'].iloc[-1]
+        bb_upper = self.safe_get_value('BB_upper')
+        bb_lower = self.safe_get_value('BB_lower')
+        bb_middle = self.safe_get_value('BB_middle')
         
-        if self.current_price < bb_lower:
-            score += 2  # Price below lower band - oversold
-            signals['Bollinger_Bands'] = 2
-        elif self.current_price < bb_middle:
-            score += 1
-            signals['Bollinger_Bands'] = 1
-        elif self.current_price > bb_upper:
-            score -= 2  # Price above upper band - overbought
-            signals['Bollinger_Bands'] = -2
-        elif self.current_price > bb_middle:
-            score -= 1
-            signals['Bollinger_Bands'] = -1
+        if bb_upper is not None and bb_lower is not None and bb_middle is not None:
+            if self.current_price < bb_lower:
+                score += 2  # Price below lower band - oversold
+                signals['Bollinger_Bands'] = 2
+            elif self.current_price < bb_middle:
+                score += 1
+                signals['Bollinger_Bands'] = 1
+            elif self.current_price > bb_upper:
+                score -= 2  # Price above upper band - overbought
+                signals['Bollinger_Bands'] = -2
+            elif self.current_price > bb_middle:
+                score -= 1
+                signals['Bollinger_Bands'] = -1
+            else:
+                signals['Bollinger_Bands'] = 0
         else:
             signals['Bollinger_Bands'] = 0
         
         # ATR for volatility context
-        atr = self.indicators['ATR'].iloc[-1]
-        atr_pct = (atr / self.current_price) * 100
-        
-        if atr_pct > 5:
-            signals['Volatility'] = 'High'
-        elif atr_pct > 2:
-            signals['Volatility'] = 'Medium'
+        atr = self.safe_get_value('ATR')
+        if atr is not None and atr > 0:
+            atr_pct = (atr / self.current_price) * 100
+            
+            if atr_pct > 5:
+                signals['Volatility'] = 'High'
+            elif atr_pct > 2:
+                signals['Volatility'] = 'Medium'
+            else:
+                signals['Volatility'] = 'Low'
         else:
-            signals['Volatility'] = 'Low'
+            signals['Volatility'] = 'Unknown'
         
         return score, signals
     
@@ -172,40 +232,58 @@ class TradingStrategy:
         score = 0
         signals = {}
         
-        # OBV trend
-        obv = self.indicators['OBV']
-        obv_sma = obv.rolling(window=20).mean()
-        
-        if obv.iloc[-1] > obv_sma.iloc[-1]:
-            score += 1
-            signals['OBV'] = 1
-        else:
-            score -= 1
-            signals['OBV'] = -1
-        
-        # Volume spike
-        avg_volume = self.df['Volume'].rolling(window=20).mean().iloc[-1]
-        current_volume = self.df['Volume'].iloc[-1]
-        
-        if current_volume > avg_volume * 1.5:
-            signals['Volume_Spike'] = 'High'
-            # Volume confirmation
-            price_change = self.df['Close'].iloc[-1] - self.df['Close'].iloc[-2]
-            if price_change > 0:
-                score += 0.5
+        try:
+            # OBV trend
+            obv = self.indicators['OBV']
+            obv_sma = obv.rolling(window=20).mean()
+            
+            obv_val = self.safe_get_value('OBV')
+            obv_sma_val = float(obv_sma.iloc[-1]) if not pd.isna(obv_sma.iloc[-1]) else None
+            
+            if obv_val is not None and obv_sma_val is not None:
+                if obv_val > obv_sma_val:
+                    score += 1
+                    signals['OBV'] = 1
+                else:
+                    score -= 1
+                    signals['OBV'] = -1
             else:
-                score -= 0.5
-        else:
+                signals['OBV'] = 0
+        except Exception:
+            signals['OBV'] = 0
+        
+        try:
+            # Volume spike
+            avg_volume = self.df['Volume'].rolling(window=20).mean().iloc[-1]
+            current_volume = float(self.df['Volume'].iloc[-1])
+            
+            if not pd.isna(avg_volume) and not pd.isna(current_volume):
+                if current_volume > float(avg_volume) * 1.5:
+                    signals['Volume_Spike'] = 'High'
+                    # Volume confirmation
+                    price_change = float(self.df['Close'].iloc[-1]) - float(self.df['Close'].iloc[-2])
+                    if price_change > 0:
+                        score += 0.5
+                    else:
+                        score -= 0.5
+                else:
+                    signals['Volume_Spike'] = 'Normal'
+            else:
+                signals['Volume_Spike'] = 'Normal'
+        except Exception:
             signals['Volume_Spike'] = 'Normal'
         
         # VWAP
-        vwap = self.indicators['VWAP'].iloc[-1]
-        if self.current_price > vwap:
-            score += 0.5
-            signals['VWAP'] = 1
+        vwap = self.safe_get_value('VWAP')
+        if vwap is not None:
+            if self.current_price > vwap:
+                score += 0.5
+                signals['VWAP'] = 1
+            else:
+                score -= 0.5
+                signals['VWAP'] = -1
         else:
-            score -= 0.5
-            signals['VWAP'] = -1
+            signals['VWAP'] = 0
         
         return score, signals
     
@@ -214,29 +292,33 @@ class TradingStrategy:
         score = 0
         signals = {}
         
-        adx = self.indicators['ADX'].iloc[-1]
-        plus_di = self.indicators['Plus_DI'].iloc[-1]
-        minus_di = self.indicators['Minus_DI'].iloc[-1]
+        adx = self.safe_get_value('ADX')
+        plus_di = self.safe_get_value('Plus_DI')
+        minus_di = self.safe_get_value('Minus_DI')
         
         # ADX shows trend strength
-        if adx > 25:
-            signals['Trend_Strength'] = 'Strong'
-            if plus_di > minus_di:
-                score += 1
-                signals['ADX_Direction'] = 1
+        if adx is not None and plus_di is not None and minus_di is not None:
+            if adx > 25:
+                signals['Trend_Strength'] = 'Strong'
+                if plus_di > minus_di:
+                    score += 1
+                    signals['ADX_Direction'] = 1
+                else:
+                    score -= 1
+                    signals['ADX_Direction'] = -1
+            elif adx > 20:
+                signals['Trend_Strength'] = 'Moderate'
+                if plus_di > minus_di:
+                    score += 0.5
+                    signals['ADX_Direction'] = 1
+                else:
+                    score -= 0.5
+                    signals['ADX_Direction'] = -1
             else:
-                score -= 1
-                signals['ADX_Direction'] = -1
-        elif adx > 20:
-            signals['Trend_Strength'] = 'Moderate'
-            if plus_di > minus_di:
-                score += 0.5
-                signals['ADX_Direction'] = 1
-            else:
-                score -= 0.5
-                signals['ADX_Direction'] = -1
+                signals['Trend_Strength'] = 'Weak'
+                signals['ADX_Direction'] = 0
         else:
-            signals['Trend_Strength'] = 'Weak'
+            signals['Trend_Strength'] = 'Unknown'
             signals['ADX_Direction'] = 0
         
         return score, signals
