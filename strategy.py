@@ -19,11 +19,32 @@ class TradingStrategy:
     def safe_get_value(self, indicator_name):
         """Safely extract indicator value and convert to float"""
         try:
-            value = self.indicators[indicator_name].iloc[-1]
-            if pd.isna(value):
+            if indicator_name not in self.indicators:
+                print(f"⚠️ Indicator '{indicator_name}' not found in indicators")
                 return None
+            
+            value = self.indicators[indicator_name].iloc[-1]
+            
+            # Check for NaN
+            if pd.isna(value):
+                print(f"⚠️ Indicator '{indicator_name}' is NaN")
+                return None
+            
+            # Check type before conversion
+            if isinstance(value, str):
+                print(f"⚠️ WARNING: Indicator '{indicator_name}' is string: '{value}'")
+                # Try to convert string to float
+                try:
+                    return float(value)
+                except ValueError:
+                    print(f"❌ Cannot convert '{value}' to float")
+                    return None
+            
+            # Convert to float
             return float(value)
-        except (KeyError, IndexError, TypeError, ValueError):
+            
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            print(f"❌ Error getting '{indicator_name}': {type(e).__name__}: {e}")
             return None
     
     def safe_compare(self, val1, val2, default=0):
@@ -433,6 +454,22 @@ class TradingStrategy:
             volume_score, volume_signals = self.analyze_volume()
             strength_score, strength_signals = self.analyze_strength()
             
+            # Ensure all scores are numbers (not strings)
+            def safe_score(score, name):
+                try:
+                    return float(score) if score is not None else 0.0
+                except (TypeError, ValueError) as e:
+                    print(f"⚠️ {name} score is not a number: {score} (type: {type(score)})")
+                    return 0.0
+            
+            trend_score = safe_score(trend_score, "Trend")
+            momentum_score = safe_score(momentum_score, "Momentum")
+            volatility_score = safe_score(volatility_score, "Volatility")
+            volume_score = safe_score(volume_score, "Volume")
+            strength_score = safe_score(strength_score, "Strength")
+            
+            print(f"📊 Scores: Trend={trend_score}, Momentum={momentum_score}, Volatility={volatility_score}, Volume={volume_score}, Strength={strength_score}")
+            
             # Combine all signals
             total_score = (
                 trend_score * 1.5 +      # Trend is important
@@ -441,6 +478,8 @@ class TradingStrategy:
                 volume_score * 1.2 +      # Volume confirmation
                 strength_score * 1.0      # Trend strength
             )
+            
+            print(f"📈 Total Score: {total_score}")
             
             # Normalize to get confidence (0-100%)
             max_possible_score = abs(1.5 * 2.5 + 2.0 * 9.5 + 1.0 * 4 + 1.2 * 2 + 1.0 * 1.5)

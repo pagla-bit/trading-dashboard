@@ -311,19 +311,12 @@ def main():
             "Leverage Multiplier",
             min_value=1,
             max_value=500,
-            value=1,
+            value=20,
             step=1,
-            help="Leverage multiplier (1x = no leverage, 10x = 10:1 leverage)"
+            help="Leverage multiplier (1x = no leverage, 20x = 20:1 leverage)"
         )
         
-        position_size = st.number_input(
-            "Position Size (units/contracts)",
-            min_value=0.01,
-            max_value=1000.0,
-            value=1.0,
-            step=0.01,
-            help="Number of units or contracts to trade"
-        )
+        st.info(f"💡 **Position Size will be auto-calculated:**\n\n(Margin × Leverage) / Instrument Price")
         
         st.markdown("---")
         
@@ -351,18 +344,38 @@ def main():
                 df = get_market_data(instrument, period="3mo", interval="1h")
             
             if df is not None and not df.empty:
+                # Get current price first
+                try:
+                    current_price = float(df['Close'].iloc[-1])
+                except (TypeError, ValueError, KeyError, IndexError) as e:
+                    st.error(f"Error getting current price: {e}")
+                    st.stop()
+                
+                # Auto-calculate position size: (Margin × Leverage) / Price
+                position_size = (margin * leverage) / current_price
+                
+                st.sidebar.success(f"📊 **Auto-Calculated:**\n\nPosition Size: {position_size:.4f} units")
+                
                 # Calculate indicators
                 ti = TechnicalIndicators(df)
                 indicators_data = ti.calculate_all()
                 
                 # Generate trading signal
-                strategy = TradingStrategy(df, indicators_data)
-                recommendation = strategy.generate_signal(margin, leverage, position_size)
+                try:
+                    strategy = TradingStrategy(df, indicators_data)
+                    recommendation = strategy.generate_signal(margin, leverage, position_size)
+                except Exception as e:
+                    import traceback
+                    error_details = traceback.format_exc()
+                    st.error(f"❌ **Error generating signal:**\n\n{str(e)}")
+                    with st.expander("🔍 Show Full Error Details"):
+                        st.code(error_details)
+                    st.warning("This might be due to insufficient data or data type issues. Try a different instrument like AAPL or BTC-USD.")
+                    st.stop()
                 
                 # Display current price and key metrics
-                current_price = df['Close'].iloc[-1]
-                price_change = df['Close'].iloc[-1] - df['Close'].iloc[-2]
-                price_change_pct = (price_change / df['Close'].iloc[-2]) * 100
+                price_change = float(df['Close'].iloc[-1]) - float(df['Close'].iloc[-2])
+                price_change_pct = (price_change / float(df['Close'].iloc[-2])) * 100
                 
                 st.header(f"{instrument}")
                 col1, col2, col3, col4, col5 = st.columns(5)
