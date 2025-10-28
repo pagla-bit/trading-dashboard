@@ -279,7 +279,7 @@ def main():
         try:
             # Fetch data
             with st.spinner("Fetching market data..."):
-                df = get_market_data(instrument, period="3mo", interval="1m")
+                df = get_market_data(instrument, period="3mo", interval="1h")
             
             if df is not None and not df.empty:
                 # Calculate indicators
