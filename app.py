@@ -52,11 +52,29 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-def get_market_data(symbol, period="3mo", interval="1m"):
+def get_market_data(symbol, period="3mo", interval="1d"):
     """Fetch market data from Yahoo Finance"""
     try:
         ticker = yf.Ticker(symbol)
+        # Yahoo Finance limitations:
+        # 1m interval: max 7 days
+        # 5m interval: max 60 days
+        # 1h interval: max 730 days
+        # 1d interval: unlimited
+        
+        # Adjust period/interval combination based on Yahoo Finance limits
+        if interval == "1m":
+            period = "7d"  # 1-minute data only available for last 7 days
+        elif interval == "5m":
+            period = "60d" if period in ["3mo", "6mo", "1y"] else period
+        
         df = ticker.history(period=period, interval=interval)
+        
+        if df.empty:
+            st.warning(f"No data returned for {symbol}. Trying with daily data...")
+            # Fallback to daily data
+            df = ticker.history(period="1y", interval="1d")
+        
         return df
     except Exception as e:
         st.error(f"Error fetching data: {e}")
