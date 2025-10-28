@@ -10,7 +10,11 @@ class TradingStrategy:
     def __init__(self, df, indicators):
         self.df = df
         self.indicators = indicators
-        self.current_price = float(df['Close'].iloc[-1])
+        try:
+            self.current_price = float(df['Close'].iloc[-1])
+        except (TypeError, ValueError, KeyError, IndexError) as e:
+            print(f"Error getting current price: {e}")
+            self.current_price = 0.0
     
     def safe_get_value(self, indicator_name):
         """Safely extract indicator value and convert to float"""
@@ -323,79 +327,169 @@ class TradingStrategy:
         
         return score, signals
     
-    def calculate_targets(self, signal, entry_price):
-        """Calculate profit targets and stop loss"""
+    def calculate_targets(self, signal, entry_price, margin=1000, leverage=1, position_size=1):
+        """
+        Calculate profit targets and stop loss for CFD trading
+        
+        Args:
+            signal: BUY/SELL/HOLD
+            entry_price: Entry price for the trade
+            margin: Trading margin/capital (default: $1000)
+            leverage: Leverage multiplier (default: 1x, no leverage)
+            position_size: Number of units/contracts (default: 1)
+        
+        Returns:
+            targets: Dictionary with profit targets
+            stop_loss: Stop loss price
+            cfd_calculations: Dictionary with CFD-specific calculations
+        """
+        cfd_calculations = {
+            'margin': margin,
+            'leverage': leverage,
+            'position_size': position_size,
+            'effective_capital': margin * leverage,
+            'cost_per_unit': entry_price,
+            'total_position_value': entry_price * position_size,
+            'required_margin': (entry_price * position_size) / leverage if leverage > 0 else entry_price * position_size,
+            'profit_3pct': 0,
+            'profit_5pct': 0,
+            'profit_10pct': 0,
+            'loss_at_stop': 0
+        }
+        
         if signal == "BUY":
+            # Long position - profit when price goes up
             targets = {
                 '3%': entry_price * 1.03,
                 '5%': entry_price * 1.05,
                 '10%': entry_price * 1.10
             }
             stop_loss = entry_price * 0.98  # 2% stop loss
+            
+            # Calculate actual profit/loss in dollars with leverage
+            price_move_3pct = (targets['3%'] - entry_price) * position_size
+            price_move_5pct = (targets['5%'] - entry_price) * position_size
+            price_move_10pct = (targets['10%'] - entry_price) * position_size
+            price_move_stop = (stop_loss - entry_price) * position_size
+            
+            cfd_calculations['profit_3pct'] = price_move_3pct * leverage
+            cfd_calculations['profit_5pct'] = price_move_5pct * leverage
+            cfd_calculations['profit_10pct'] = price_move_10pct * leverage
+            cfd_calculations['loss_at_stop'] = price_move_stop * leverage
+            
+            # Calculate ROI on margin
+            cfd_calculations['roi_3pct'] = (cfd_calculations['profit_3pct'] / margin) * 100
+            cfd_calculations['roi_5pct'] = (cfd_calculations['profit_5pct'] / margin) * 100
+            cfd_calculations['roi_10pct'] = (cfd_calculations['profit_10pct'] / margin) * 100
+            cfd_calculations['roi_at_stop'] = (cfd_calculations['loss_at_stop'] / margin) * 100
+            
         elif signal == "SELL":
+            # Short position - profit when price goes down
             targets = {
                 '3%': entry_price * 0.97,
                 '5%': entry_price * 0.95,
                 '10%': entry_price * 0.90
             }
             stop_loss = entry_price * 1.02  # 2% stop loss
+            
+            # Calculate actual profit/loss in dollars with leverage
+            price_move_3pct = (entry_price - targets['3%']) * position_size
+            price_move_5pct = (entry_price - targets['5%']) * position_size
+            price_move_10pct = (entry_price - targets['10%']) * position_size
+            price_move_stop = (entry_price - stop_loss) * position_size
+            
+            cfd_calculations['profit_3pct'] = price_move_3pct * leverage
+            cfd_calculations['profit_5pct'] = price_move_5pct * leverage
+            cfd_calculations['profit_10pct'] = price_move_10pct * leverage
+            cfd_calculations['loss_at_stop'] = price_move_stop * leverage
+            
+            # Calculate ROI on margin
+            cfd_calculations['roi_3pct'] = (cfd_calculations['profit_3pct'] / margin) * 100
+            cfd_calculations['roi_5pct'] = (cfd_calculations['profit_5pct'] / margin) * 100
+            cfd_calculations['roi_10pct'] = (cfd_calculations['profit_10pct'] / margin) * 100
+            cfd_calculations['roi_at_stop'] = (cfd_calculations['loss_at_stop'] / margin) * 100
+            
         else:
             targets = {'3%': 0, '5%': 0, '10%': 0}
             stop_loss = 0
         
-        return targets, stop_loss
+        return targets, stop_loss, cfd_calculations
     
-    def generate_signal(self):
+    def generate_signal(self, margin=1000, leverage=1, position_size=1):
         """
         Generate trading signal based on all indicators
-        Returns recommendation with confidence score
+        Returns recommendation with confidence score and CFD calculations
+        
+        Args:
+            margin: Trading capital/margin (default: $1000)
+            leverage: Leverage multiplier (default: 1x)
+            position_size: Number of units/contracts (default: 1)
         """
-        # Analyze all aspects
-        trend_score, trend_signals = self.analyze_trend()
-        momentum_score, momentum_signals = self.analyze_momentum()
-        volatility_score, volatility_signals = self.analyze_volatility()
-        volume_score, volume_signals = self.analyze_volume()
-        strength_score, strength_signals = self.analyze_strength()
-        
-        # Combine all signals
-        total_score = (
-            trend_score * 1.5 +      # Trend is important
-            momentum_score * 2.0 +    # Momentum is very important
-            volatility_score * 1.0 +  # Volatility context
-            volume_score * 1.2 +      # Volume confirmation
-            strength_score * 1.0      # Trend strength
-        )
-        
-        # Normalize to get confidence (0-100%)
-        max_possible_score = abs(1.5 * 2.5 + 2.0 * 9.5 + 1.0 * 4 + 1.2 * 2 + 1.0 * 1.5)
-        confidence = min(100, (abs(total_score) / max_possible_score) * 100)
-        
-        # Determine signal
-        if total_score > 5:
-            signal = "BUY"
-        elif total_score < -5:
-            signal = "SELL"
-        else:
-            signal = "HOLD"
-        
-        # Calculate targets
-        targets, stop_loss = self.calculate_targets(signal, self.current_price)
-        
-        # Combine all indicator signals
-        all_signals = {
-            **trend_signals,
-            **momentum_signals,
-            **volatility_signals,
-            **volume_signals,
-            **strength_signals
-        }
-        
-        return {
-            'signal': signal,
-            'entry_price': self.current_price,
-            'targets': targets,
-            'stop_loss': stop_loss,
-            'confidence': confidence,
-            'total_score': total_score,
-            'indicators': all_signals
-        }
+        try:
+            # Analyze all aspects
+            trend_score, trend_signals = self.analyze_trend()
+            momentum_score, momentum_signals = self.analyze_momentum()
+            volatility_score, volatility_signals = self.analyze_volatility()
+            volume_score, volume_signals = self.analyze_volume()
+            strength_score, strength_signals = self.analyze_strength()
+            
+            # Combine all signals
+            total_score = (
+                trend_score * 1.5 +      # Trend is important
+                momentum_score * 2.0 +    # Momentum is very important
+                volatility_score * 1.0 +  # Volatility context
+                volume_score * 1.2 +      # Volume confirmation
+                strength_score * 1.0      # Trend strength
+            )
+            
+            # Normalize to get confidence (0-100%)
+            max_possible_score = abs(1.5 * 2.5 + 2.0 * 9.5 + 1.0 * 4 + 1.2 * 2 + 1.0 * 1.5)
+            confidence = min(100, (abs(total_score) / max_possible_score) * 100)
+            
+            # Determine signal
+            if total_score > 5:
+                signal = "BUY"
+            elif total_score < -5:
+                signal = "SELL"
+            else:
+                signal = "HOLD"
+            
+            # Calculate targets with CFD parameters
+            targets, stop_loss, cfd_calculations = self.calculate_targets(
+                signal, self.current_price, margin, leverage, position_size
+            )
+            
+            # Combine all indicator signals
+            all_signals = {
+                **trend_signals,
+                **momentum_signals,
+                **volatility_signals,
+                **volume_signals,
+                **strength_signals
+            }
+            
+            return {
+                'signal': signal,
+                'entry_price': self.current_price,
+                'targets': targets,
+                'stop_loss': stop_loss,
+                'confidence': confidence,
+                'total_score': total_score,
+                'indicators': all_signals,
+                'cfd': cfd_calculations
+            }
+        except Exception as e:
+            print(f"Error in generate_signal: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return safe default
+            return {
+                'signal': 'HOLD',
+                'entry_price': self.current_price,
+                'targets': {'3%': 0, '5%': 0, '10%': 0},
+                'stop_loss': 0,
+                'confidence': 0,
+                'total_score': 0,
+                'indicators': {},
+                'cfd': {'margin': margin, 'leverage': leverage, 'error': str(e)}
+            }

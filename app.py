@@ -12,7 +12,7 @@ from strategy import TradingStrategy
 
 # Page configuration
 st.set_page_config(
-    page_title="Trading Dashboard",
+    page_title="CFD Trading Dashboard",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -199,8 +199,8 @@ def create_indicators_chart(df, indicators_data):
     
     return fig
 
-def display_recommendation(signal, entry_price, targets, stop_loss, confidence):
-    """Display trading recommendation"""
+def display_recommendation(signal, entry_price, targets, stop_loss, confidence, cfd=None):
+    """Display trading recommendation with CFD calculations"""
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -218,8 +218,30 @@ def display_recommendation(signal, entry_price, targets, stop_loss, confidence):
     with col3:
         st.metric("Confidence", f"{confidence:.1f}%")
     
+    # Display CFD Trading Setup
+    if cfd and signal in ["BUY", "SELL"]:
+        st.markdown("---")
+        st.subheader("💰 CFD Trading Setup")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Margin", f"${cfd['margin']:.2f}")
+        with col2:
+            st.metric("Leverage", f"{cfd['leverage']}x")
+        with col3:
+            st.metric("Position Size", f"{cfd['position_size']:.2f}")
+        with col4:
+            st.metric("Effective Capital", f"${cfd['effective_capital']:.2f}")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Position Value", f"${cfd['total_position_value']:.2f}")
+        with col2:
+            st.metric("Required Margin", f"${cfd['required_margin']:.2f}")
+    
     if signal in ["BUY", "SELL"]:
-        st.subheader("Profit Targets")
+        st.markdown("---")
+        st.subheader("🎯 Price Targets")
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -228,9 +250,25 @@ def display_recommendation(signal, entry_price, targets, stop_loss, confidence):
             st.info(f"**5% Target**\n\n${targets['5%']:.2f}")
         with col3:
             st.info(f"**10% Target**\n\n${targets['10%']:.2f}")
+        
+        # Display Profit/Loss with Leverage
+        if cfd:
+            st.markdown("---")
+            st.subheader("💵 Profit/Loss Projections (with Leverage)")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.success(f"**3% Move**\n\nProfit: ${cfd['profit_3pct']:.2f}\n\nROI: {cfd['roi_3pct']:.1f}%")
+            with col2:
+                st.success(f"**5% Move**\n\nProfit: ${cfd['profit_5pct']:.2f}\n\nROI: {cfd['roi_5pct']:.1f}%")
+            with col3:
+                st.success(f"**10% Move**\n\nProfit: ${cfd['profit_10pct']:.2f}\n\nROI: {cfd['roi_10pct']:.1f}%")
+            
+            st.error(f"**At Stop Loss (-2%): ${cfd['loss_at_stop']:.2f} (ROI: {cfd['roi_at_stop']:.1f}%)**")
 
 def main():
-    st.title("📈 Live Trading Dashboard")
+    st.title("📈 CFD Trading Dashboard - Live Signals with Leverage")
     
     # Sidebar
     with st.sidebar:
@@ -255,6 +293,37 @@ def main():
             instrument = "^GSPC"
         if st.button("Bitcoin (BTC-USD)"):
             instrument = "BTC-USD"
+        
+        st.markdown("---")
+        
+        # CFD Trading Parameters
+        st.subheader("💰 CFD Trading Setup")
+        margin = st.number_input(
+            "Trading Margin ($)",
+            min_value=100.0,
+            max_value=1000000.0,
+            value=1000.0,
+            step=100.0,
+            help="Your trading capital/margin"
+        )
+        
+        leverage = st.number_input(
+            "Leverage Multiplier",
+            min_value=1,
+            max_value=500,
+            value=1,
+            step=1,
+            help="Leverage multiplier (1x = no leverage, 10x = 10:1 leverage)"
+        )
+        
+        position_size = st.number_input(
+            "Position Size (units/contracts)",
+            min_value=0.01,
+            max_value=1000.0,
+            value=1.0,
+            step=0.01,
+            help="Number of units or contracts to trade"
+        )
         
         st.markdown("---")
         
@@ -288,7 +357,7 @@ def main():
                 
                 # Generate trading signal
                 strategy = TradingStrategy(df, indicators_data)
-                recommendation = strategy.generate_signal()
+                recommendation = strategy.generate_signal(margin, leverage, position_size)
                 
                 # Display current price and key metrics
                 current_price = df['Close'].iloc[-1]
@@ -326,7 +395,8 @@ def main():
                     recommendation['entry_price'],
                     recommendation['targets'],
                     recommendation['stop_loss'],
-                    recommendation['confidence']
+                    recommendation['confidence'],
+                    recommendation.get('cfd')
                 )
                 
                 # Save to database
